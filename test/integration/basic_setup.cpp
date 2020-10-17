@@ -23,7 +23,7 @@ protected:
 
 protected:
   auto getFileDescriptor(const std::filesystem::path &file) -> int {
-    auto fd = open(file.c_str(), O_RDONLY);
+    auto fd = open(file.c_str(), O_RDWR);
     if (fd < 0) {
       throw std::runtime_error("Failed to open file");
     }
@@ -122,6 +122,16 @@ TEST_F(PrepareReadvTests, should_fail_to_enqueue_more_entries_then_available) {
   ASSERT_FALSE(m_ring.prepare_readv(m_fd, m_userData, m_buffer));
 }
 
+TEST_F(PrepareReadvTests, should_enqueue_custom_user_data)
+{
+    auto ptr = std::make_unique<int>(10);
+    auto userData = reinterpret_cast<std::uint64_t>(&*ptr);
+    ASSERT_TRUE(m_ring.prepare_readv(m_fd, userData, m_buffer));
+    m_ring.submit();
+    auto completion = m_ring.wait();
+    auto a = reinterpret_cast<int*>(completion.get()->user_data);
+    ASSERT_EQ(10, *a);
+}
 
 class PrepareWritevTests : public BasicSetupTests {
 };

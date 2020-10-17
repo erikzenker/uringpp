@@ -1,7 +1,10 @@
 #pragma once
 
-#include <exception>
+#include <stdexcept>
 #include <optional>
+#include <vector>
+#include <memory>
+#include <cstring>
 
 #include "liburing.h"
 
@@ -32,7 +35,7 @@ public:
   ~Ring() { io_uring_queue_exit(&m_ring); }
 
   //***************************************************************************
-  // PUSH
+  // PUSH TO SUBMISSION QUEUE
   //***************************************************************************
 
   /*
@@ -42,45 +45,49 @@ public:
    * @param[in] userData user data which will be returned on the completion
    * @param[out] buffer buffer which the kernel should write to
    */
-  auto prepare_readv(int fileDescriptor, std::uint64_t userData,
-                     std::vector<std::uint8_t> &buffer) -> bool {
+  auto prepare_readv(
+      int fileDescriptor,
+      std::uint64_t userData,
+      std::vector<std::uint8_t>& buffer,
+      std::size_t offset = 0) -> bool
+  {
 
-    const std::size_t nBuffer = 1;
-    const std::size_t offset = 0;
+      const std::size_t nBuffer = 1;
 
-    auto vec = makeIovec(buffer);
+      auto vec = makeIovec(buffer);
 
-    auto submissionQueueEntry = getSubmissionQueueEntry();
-    if (!submissionQueueEntry) {
-      return false;
-    }
+      auto submissionQueueEntry = getSubmissionQueueEntry();
+      if (!submissionQueueEntry) {
+          return false;
+      }
 
-    io_uring_prep_readv(submissionQueueEntry, fileDescriptor, vec.get(),
-                        nBuffer, offset);
+      io_uring_prep_readv(submissionQueueEntry, fileDescriptor, vec.get(), nBuffer, offset);
 
-    submissionQueueEntry->user_data = userData;
+      submissionQueueEntry->user_data = userData;
 
-    return true;
+      return true;
   }
 
-  auto prepare_writev(int fileDescriptor, std::uint64_t userData,
-                      std::vector<std::uint8_t> &buffer) -> bool {
+  auto prepare_writev(
+      int fileDescriptor,
+      std::uint64_t userData,
+      std::vector<std::uint8_t>& buffer,
+      std::size_t offset = 0) -> bool
+  {
 
-    const std::size_t nBuffer = 1;
-    const std::size_t offset = 0;
+      const std::size_t nBuffer = 1;
 
-    auto submissionQueueEntry = getSubmissionQueueEntry();
-    if (!submissionQueueEntry) {
-      return false;
-    }
+      auto submissionQueueEntry = getSubmissionQueueEntry();
+      if (!submissionQueueEntry) {
+          return false;
+      }
 
-    auto vec = makeIovec(buffer);
+      auto vec = makeIovec(buffer);
 
-    io_uring_prep_writev(submissionQueueEntry, fileDescriptor, vec.get(),
-                         nBuffer, offset);
+      io_uring_prep_writev(submissionQueueEntry, fileDescriptor, vec.get(), nBuffer, offset);
 
-    submissionQueueEntry->user_data = userData;
-    return true;
+      submissionQueueEntry->user_data = userData;
+      return true;
   }
 
   //***************************************************************************
@@ -100,7 +107,7 @@ public:
   }
 
   //***************************************************************************
-  // PULL
+  // PULL FROM COMPLETION QUEUE
   //***************************************************************************
 
   /*
