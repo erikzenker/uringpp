@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <cstring>
+#include <iostream>
 
 #include "liburing.h"
 
@@ -14,6 +15,8 @@ namespace uringpp {
 class Ring {
 
   const std::size_t m_maxQueueEntries;
+  std::size_t m_preparedQueueEntries;
+  std::size_t m_submittedQueueEntries;
   io_uring m_ring;
   io_uring_cqe *m_cqe;
   std::vector<std::shared_ptr<iovec>> m_buffers;
@@ -22,7 +25,7 @@ class Ring {
 public:
   enum class Result { Succes, QueueFull };
 
-  Ring(std::size_t maxQueueEntries) : m_maxQueueEntries(maxQueueEntries) {
+  Ring(std::size_t maxQueueEntries) : m_maxQueueEntries(maxQueueEntries), m_preparedQueueEntries(0), m_submittedQueueEntries(0) {
     const auto flags = 0;
     const auto result = io_uring_queue_init(m_maxQueueEntries, &m_ring, flags);
 
@@ -45,13 +48,13 @@ public:
    * @param[in] userData user data which will be returned on the completion
    * @param[out] buffer buffer which the kernel should write to
    */
+  template <class UserData>
   auto prepare_readv(
       int fileDescriptor,
-      std::uint64_t userData,
+      const std::shared_ptr<UserData>& userData,
       std::vector<std::uint8_t>& buffer,
       std::size_t offset = 0) -> bool
   {
-
       const std::size_t nBuffer = 1;
 
       auto vec = makeIovec(buffer);
@@ -62,19 +65,19 @@ public:
       }
 
       io_uring_prep_readv(submissionQueueEntry, fileDescriptor, vec.get(), nBuffer, offset);
-
-      submissionQueueEntry->user_data = userData;
+      io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+      m_preparedQueueEntries++;
 
       return true;
   }
 
+  template <class UserData>
   auto prepare_writev(
       int fileDescriptor,
-      std::uint64_t userData,
+      const std::shared_ptr<UserData>& userData,
       std::vector<std::uint8_t>& buffer,
       std::size_t offset = 0) -> bool
   {
-
       const std::size_t nBuffer = 1;
 
       auto submissionQueueEntry = getSubmissionQueueEntry();
@@ -85,8 +88,9 @@ public:
       auto vec = makeIovec(buffer);
 
       io_uring_prep_writev(submissionQueueEntry, fileDescriptor, vec.get(), nBuffer, offset);
+      io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+      m_preparedQueueEntries++;
 
-      submissionQueueEntry->user_data = userData;
       return true;
   }
 
@@ -99,11 +103,14 @@ public:
    * start to process the commands asynchronously of the submission call.
    */
   auto submit() {
+    //std::cout << "submit " << m_preparedQueueEntries << std::endl;
     auto result = io_uring_submit(&m_ring);
     if (result < 0) {
       throw std::runtime_error(std::string{"Failed to submit: "} +
                                strerror(-result));
     }
+    m_submittedQueueEntries += m_preparedQueueEntries;
+    m_preparedQueueEntries = 0;
   }
 
   //***************************************************************************
@@ -148,7 +155,22 @@ public:
    * @param[in] completion completion that should be removed
    */
   auto seen(const Completion &completion) {
+    m_submittedQueueEntries--;  
     io_uring_cqe_seen(&m_ring, completion.get());
+  }
+
+  auto capacity(){
+    auto capacity = m_maxQueueEntries - m_submittedQueueEntries - m_preparedQueueEntries;
+    //std::cout << "capacity " << capacity << std::endl;
+    return capacity;
+  }
+
+  auto preparedQueueEntries(){
+    return m_preparedQueueEntries;
+  }
+
+  auto submittedQueueEntries(){
+    return m_submittedQueueEntries;
   }
 
 private:

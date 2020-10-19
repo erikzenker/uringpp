@@ -7,8 +7,8 @@ if(NOT TARGET uringpp::uringpp)
 endif()
 
 # target defintion
-add_executable(cp main.cpp)
+add_executable(ncp main.cpp)
 
-target_link_libraries(cp
+target_link_libraries(ncp
         PRIVATE
         uringpp::uringpp)

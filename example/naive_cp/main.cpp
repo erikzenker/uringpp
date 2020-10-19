@@ -42,10 +42,8 @@ auto readFile(uringpp::Ring& ring, const std::filesystem::path file)
 
     while (true) {
         blocks.emplace_back(blockSize);
-        auto readData
-            = std::make_unique<Data>(CompletionType::Read, submissionIndex++, blocks.back());
-        ring.prepare_readv(
-            fd, reinterpret_cast<std::uint64_t>(&*readData), blocks.back(), bytesReadTotal);
+        auto readData = std::make_shared<Data>(CompletionType::Read, submissionIndex++, blocks.back());
+        ring.prepare_readv(fd, readData, blocks.back(), bytesReadTotal);
         ring.submit();
 
         auto completion = ring.wait();
@@ -79,9 +77,8 @@ auto writeFile(
     const auto fd = openFile(file, O_WRONLY);
 
     for (auto& block : blocks) {
-        auto writeData = std::make_unique<Data>(CompletionType::Write, submissionIndex++, block);
-        ring.prepare_writev(
-            fd, reinterpret_cast<std::uint64_t>(&*writeData), block, bytesWriteTotal);
+        auto writeData = std::make_shared<Data>(CompletionType::Write, submissionIndex++, block);
+        ring.prepare_writev(fd, writeData, block, bytesWriteTotal);
         ring.submit();
 
         auto completion = ring.wait();
@@ -99,6 +96,12 @@ auto writeFile(
     }
 }
 
+auto cp(const std::filesystem::path& inputFile, const std::filesystem::path& outputFile)
+{
+    uringpp::Ring ring { 64 };    
+    writeFile(ring, outputFile, readFile(ring, inputFile));
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3) {
@@ -108,9 +111,7 @@ int main(int argc, char** argv)
     const auto inputFile = std::filesystem::path(argv[1]);
     const auto outputFile = std::filesystem::path(argv[2]);
 
-    uringpp::Ring ring { 64 };
-
-    writeFile(ring, outputFile, readFile(ring, inputFile));
+    cp(inputFile, outputFile);
 
     return 0;
 }

@@ -3,7 +3,8 @@
 C++ interface and playground for io_uring / liburing
 
 # Examples
-* [cp](example/cp/cp.cpp)
+* [naive cp](example/naive_cp/main.cpp)
+* [fast cp](example/cp/main.cpp)
 
 # Dependencies
 

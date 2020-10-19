@@ -17,7 +17,7 @@ class BasicSetupTests : public ::testing::Test {
 protected:
   BasicSetupTests()
       : m_file("test2.txt"), m_fd(getFileDescriptor(m_file)),
-        m_buffer(std::filesystem::file_size(m_file), '!'), m_maxQueueEntries(1), m_userData(0),
+        m_buffer(std::filesystem::file_size(m_file), '!'), m_maxQueueEntries(1), m_userData(std::make_shared<int>(0)),
         m_ring(m_maxQueueEntries) {}
 
 
@@ -49,7 +49,7 @@ protected:
   int m_fd;
   std::vector<std::uint8_t> m_buffer;
   const std::size_t m_maxQueueEntries;
-  std::uint64_t m_userData;
+  std::shared_ptr<int> m_userData;
   Ring m_ring;
 };
 
@@ -87,7 +87,6 @@ TEST_F(PrepareReadvTests, should_wait_for_submitted_readv) {
   auto result = m_ring.wait();
   ASSERT_EQ(std::filesystem::file_size(m_file), result.get()->res);
   ASSERT_EQ(0, result.get()->flags);
-  ASSERT_EQ(m_userData, result.get()->user_data);
   ASSERT_EQ(readFile(m_file), m_buffer);
 }
 
@@ -97,7 +96,6 @@ TEST_F(PrepareReadvTests, should_peek_for_submitted_readv) {
   auto result = m_ring.peek();
   ASSERT_EQ(std::filesystem::file_size(m_file), result->get()->res);
   ASSERT_EQ(0, result->get()->flags);
-  ASSERT_EQ(m_userData, result->get()->user_data);
   ASSERT_EQ(readFile(m_file), m_buffer);
 }
 
@@ -124,8 +122,7 @@ TEST_F(PrepareReadvTests, should_fail_to_enqueue_more_entries_then_available) {
 
 TEST_F(PrepareReadvTests, should_enqueue_custom_user_data)
 {
-    auto ptr = std::make_unique<int>(10);
-    auto userData = reinterpret_cast<std::uint64_t>(&*ptr);
+    auto userData = std::make_shared<int>(10);
     ASSERT_TRUE(m_ring.prepare_readv(m_fd, userData, m_buffer));
     m_ring.submit();
     auto completion = m_ring.wait();
