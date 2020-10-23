@@ -35,7 +35,7 @@ int openFile(const path& file, int mode)
 
 auto cp(const path& inputFile, const path& outputFile, std::size_t queueSize = 64, std::size_t blockSize = 32 * 1024)
 {
-    uringpp::Ring ring { queueSize };    
+    uringpp::Ring ring { queueSize };
     const auto inputFd = openFile(inputFile, O_RDONLY);
     const auto outputFd = openFile(outputFile, O_WRONLY);
     const auto inputFileSize = file_size(inputFile);
@@ -51,7 +51,11 @@ auto cp(const path& inputFile, const path& outputFile, std::size_t queueSize = 6
         while(ring.capacity() && bytesReadEnqueuedTotal < inputFileSize){
             blocks.emplace_back(blockSize);
             userData.push_back(std::make_shared<Data>(CompletionType::Read, bytesReadEnqueuedTotal, blockIndex));
-            ring.prepare_readv(inputFd, userData.back(), blocks.at(userData.back()->blockIndex), userData.back()->offset);
+            ring.prepare_readv(
+                inputFd,
+                blocks.at(userData.back()->blockIndex),
+                userData.back()->offset,
+                userData.back());
             bytesReadEnqueuedTotal += blocks.at(userData.back()->blockIndex).size();
             blockIndex++;
         }
@@ -61,13 +65,13 @@ auto cp(const path& inputFile, const path& outputFile, std::size_t queueSize = 6
         }
 
         while(ring.submittedQueueEntries()){
-            auto completion = ring.wait();
-            auto data = reinterpret_cast<Data*>(completion.get()->user_data);
+            auto completion = ring.wait<Data>();
+            auto data = completion.userData();
 
             switch(data->type){
                 case CompletionType::Read:
                 {
-                    auto bytesRead = completion.get()->res;
+                    auto bytesRead = completion.result();
                     if (bytesRead < 0) {
                         throw std::runtime_error("failed to read from file");
                     }
@@ -76,13 +80,17 @@ auto cp(const path& inputFile, const path& outputFile, std::size_t queueSize = 6
                     bytesReadTotal += bytesRead;
 
                     userData.push_back(std::make_shared<Data>(CompletionType::Write, data->offset, data->blockIndex));
-                    ring.prepare_writev(outputFd, userData.back(), blocks.at(userData.back()->blockIndex), userData.back()->offset);
+                    ring.prepare_writev(
+                        outputFd,
+                        blocks.at(userData.back()->blockIndex),
+                        userData.back()->offset,
+                        userData.back());
                     ring.submit();
                     break;   
                 }
                 case  CompletionType::Write:      
                 {
-                    auto bytesWrite = completion.get()->res;
+                    auto bytesWrite = completion.result();
 
                     if (bytesWrite < 0) {
                         throw std::runtime_error(std::string("failed to write to file: ") + strerror(-bytesWrite) );

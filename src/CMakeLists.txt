@@ -22,7 +22,7 @@ write_basic_package_version_file(uringppConfigVersion.cmake
 install(FILES uringppConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/uringppConfigVersion.cmake
         DESTINATION lib/cmake/uringpp)
 
-target_compile_features(uringpp INTERFACE cxx_std_17)
+target_compile_features(uringpp INTERFACE cxx_std_20)
 target_include_directories(uringpp INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)

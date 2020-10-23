@@ -10,7 +10,9 @@ endif()
 # target defintion
 add_executable(uringppIntegrationTests 
         main.cpp 
-        basic_setup.cpp
+        queue_tests.cpp
+        readv_tests.cpp
+        writev_tests.cpp
 )
 
 target_link_libraries(uringppIntegrationTests

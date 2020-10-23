@@ -43,22 +43,22 @@ auto readFile(uringpp::Ring& ring, const std::filesystem::path file)
     while (true) {
         blocks.emplace_back(blockSize);
         auto readData = std::make_shared<Data>(CompletionType::Read, submissionIndex++, blocks.back());
-        ring.prepare_readv(fd, readData, blocks.back(), bytesReadTotal);
+        ring.prepare_readv(fd, blocks.back(), bytesReadTotal, readData);
         ring.submit();
 
-        auto completion = ring.wait();
-        auto data = reinterpret_cast<Data*>(completion.get()->user_data);
-        ring.seen(completion);
+        auto completion = ring.wait<Data>();
 
-        if (data->type == CompletionType::Read) {
-            auto bytesRead = completion.get()->res;
+        if (completion.userData()->type == CompletionType::Read) {
+            auto bytesRead = completion.result();
             if (bytesRead < 0) {
                 throw std::runtime_error("failed to read from file");
             }
 
-            data->block.resize(bytesRead);
+            completion.userData()->block.resize(bytesRead);
             bytesReadTotal += bytesRead;
         }
+
+        ring.seen(completion);        
 
         if (bytesReadTotal >= std::filesystem::file_size(file)) {
             break;
@@ -78,21 +78,21 @@ auto writeFile(
 
     for (auto& block : blocks) {
         auto writeData = std::make_shared<Data>(CompletionType::Write, submissionIndex++, block);
-        ring.prepare_writev(fd, writeData, block, bytesWriteTotal);
+        ring.prepare_writev(fd, block, bytesWriteTotal, writeData);
         ring.submit();
 
-        auto completion = ring.wait();
-        auto data = reinterpret_cast<Data*>(completion.get()->user_data);
-        ring.seen(completion);
+        auto completion = ring.wait<Data>();
 
-        if (data->type == CompletionType::Write) {
-            auto bytesWrite = completion.get()->res;
+        if (completion.userData()->type == CompletionType::Write) {
+            auto bytesWrite = completion.result();
             if (bytesWrite < 0) {
                 throw std::runtime_error("failed to write to file");
             }
 
             bytesWriteTotal += bytesWrite;
         }
+
+        ring.seen(completion);
     }
 }
 
