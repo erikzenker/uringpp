@@ -165,6 +165,41 @@ class Ring {
         return true;
     }
 
+    template <class UserData>
+    auto prepare_poll_add(int fileDescriptor, const std::shared_ptr<UserData>& userData)
+    {
+        auto submissionQueueEntry = getSubmissionQueueEntry();
+        if (!submissionQueueEntry) {
+            return false;
+        }
+
+
+       io_uring_prep_poll_add(submissionQueueEntry, fileDescriptor, POLL_IN);
+       io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+       return true;
+    }    
+
+    template <class UserData>
+    auto prepare_epoll_ctl(
+        int epollFileDescriptor,
+        int fileDescriptor,
+        int op,
+        epoll_event* epollEvent,
+        const std::shared_ptr<UserData>& userData)
+    {
+        auto submissionQueueEntry = getSubmissionQueueEntry();
+        if (!submissionQueueEntry) {
+            return false;
+        }
+
+        const int flags = 0;
+        io_uring_prep_epoll_ctl(
+            submissionQueueEntry, epollFileDescriptor, fileDescriptor, op, epollEvent);
+        io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+
+        return true;
+    }
+
     //***************************************************************************
     // SUBMIT
     //***************************************************************************
