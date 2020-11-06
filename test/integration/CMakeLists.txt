@@ -13,6 +13,7 @@ add_executable(uringppIntegrationTests
         queue_tests.cpp
         readv_tests.cpp
         writev_tests.cpp
+        buffer_tests.cpp
 )
 
 target_link_libraries(uringppIntegrationTests

@@ -9,6 +9,7 @@
 
 #include "liburing.h"
 
+#include "uringpp/BufferPool.h"
 #include "uringpp/Completion.h"
 
 namespace uringpp {
@@ -149,6 +150,24 @@ class Ring {
     }
 
     template <ContinuousMemory Container, class UserData>
+    auto prepare_send_bp(
+        int fileDescriptor, Container&& buffer, const std::shared_ptr<UserData>& userData)
+    {
+        auto submissionQueueEntry = getSubmissionQueueEntry();
+        if (!submissionQueueEntry) {
+            return false;
+        }
+
+        const int flags = 0;
+        io_uring_prep_send(
+            submissionQueueEntry, fileDescriptor, buffer.data(), buffer.size(), flags);
+        io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+
+        return true;
+    }
+
+
+    template <ContinuousMemory Container, class UserData>
     auto
     prepare_recv(int fileDescriptor, Container& buffer, const std::shared_ptr<UserData>& userData)
     {
@@ -161,6 +180,26 @@ class Ring {
         io_uring_prep_recv(
             submissionQueueEntry, fileDescriptor, buffer.data(), buffer.size(), flags);
         io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+
+        return true;
+    }
+
+
+    template <class UserData>
+    auto
+    prepare_recv_bp(int fileDescriptor, BufferPool& bufferPool, const std::shared_ptr<UserData>& userData)
+    {
+        auto submissionQueueEntry = getSubmissionQueueEntry();
+        if (!submissionQueueEntry) {
+            return false;
+        }
+
+        const int flags = 0;
+        io_uring_prep_recv(
+            submissionQueueEntry, fileDescriptor, nullptr, bufferPool.buffer_size(), flags);
+        submissionQueueEntry->buf_group = bufferPool.group_id();
+        io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+        io_uring_sqe_set_flags(submissionQueueEntry, IOSQE_BUFFER_SELECT);
 
         return true;
     }
@@ -201,6 +240,55 @@ class Ring {
     }
 
     //***************************************************************************
+    // BUFFER UTILS
+    //***************************************************************************
+    // TODO: Add user data and do not submit/wait/seen
+    template <class UserData>
+    auto prepare_create_buffer_pool(std::size_t numberOfBuffers, std::size_t sizePerBuffer, const std::shared_ptr<UserData>& userData) -> BufferPool
+    {
+        auto submissionQueueEntry = getSubmissionQueueEntry();
+        if (!submissionQueueEntry) {
+            throw std::runtime_error("Failed to get submission queue entry");
+        }
+
+        auto bufferId = 0;
+        BufferPool bufferPool(numberOfBuffers, sizePerBuffer, bufferId);
+
+        io_uring_prep_provide_buffers(
+            submissionQueueEntry,
+            bufferPool.data(),
+            bufferPool.buffer_size(),
+            bufferPool.pool_size(),
+            bufferPool.group_id(),
+            0);
+        io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+
+        return bufferPool;
+    }
+
+    template <class UserData>
+    auto prepare_readd_buffer(BufferPool& bufferPool, std::size_t bufferIdx, const std::shared_ptr<UserData>& userData) -> BufferPool
+    {
+        auto submissionQueueEntry = getSubmissionQueueEntry();
+        if (!submissionQueueEntry) {
+            throw std::runtime_error("Failed to get submission queue entry");
+        }
+
+        bufferPool.clear(bufferIdx);
+        io_uring_prep_provide_buffers(
+            submissionQueueEntry,
+            bufferPool.at(bufferIdx).data(),
+            bufferPool.at(bufferIdx).size(),
+            1,
+            bufferPool.group_id(),
+            bufferIdx);
+        io_uring_sqe_set_data(submissionQueueEntry, userData.get());
+
+        return bufferPool;
+    }
+
+
+    //***************************************************************************
     // SUBMIT
     //***************************************************************************
 
@@ -208,7 +296,7 @@ class Ring {
      * Submits the commands in the submission queue to the kernel. The kernel will
      * start to process the commands asynchronously of the submission call.
      */
-    auto submit()
+    auto submit() -> void
     {
         auto result = io_uring_submit(&m_ring);
         if (result < 0) {
@@ -258,7 +346,7 @@ class Ring {
      *
      * @param[in] completion completion that should be removed
      */
-    template <class UserData> auto seen(const Completion<UserData>& completion)
+    template <class UserData> auto seen(const Completion<UserData>& completion) -> void
     {
         io_uring_cqe_seen(&m_ring, completion.get());
     }
