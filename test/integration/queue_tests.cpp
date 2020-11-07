@@ -26,7 +26,7 @@ class QueueTests : public ::testing::Test {
     using UserData = int;
     const std::size_t m_maxQueueEntries;
     std::shared_ptr<UserData> m_userData;
-    Ring m_ring;
+    Ring<void> m_ring;
 };
 
 TEST_F(QueueTests, should_construct_ring)
@@ -59,8 +59,8 @@ TEST_F(QueueTests, should_return_number_of_submitted_queue_entries)
 
 TEST_F(QueueTests, should_fail_to_construct_ring_with_to_large_queue_size)
 {
-    const auto toLargeQueueSize = std::numeric_limits<std::size_t>::max();
-    ASSERT_THROW(Ring { toLargeQueueSize }, std::runtime_error);
+    const auto toLargeQueueSize = 4096 + 1;
+    ASSERT_THROW(Ring<void> { toLargeQueueSize }, std::runtime_error);
 }
 
 TEST_F(QueueTests, should_submit_empty_queue)
@@ -70,5 +70,5 @@ TEST_F(QueueTests, should_submit_empty_queue)
 
 TEST_F(QueueTests, should_fail_to_peek_on_empty_completion_queue)
 {
-    ASSERT_FALSE(m_ring.peek<void>());
+    ASSERT_FALSE(m_ring.peek());
 }

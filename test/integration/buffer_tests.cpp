@@ -16,7 +16,7 @@ class BufferTests : public ::testing::Test {
 
   protected:
     const std::size_t m_maxQueueEntries;
-    Ring m_ring;
+    Ring<void> m_ring;
 };
 
 TEST_F(BufferTests, should_create_buffer_pool)

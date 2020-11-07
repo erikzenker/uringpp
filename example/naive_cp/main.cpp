@@ -31,7 +31,7 @@ struct Data {
     std::vector<std::uint8_t>& block;
 };
 
-auto readFile(uringpp::Ring& ring, const std::filesystem::path file)
+auto readFile(uringpp::Ring<Data>& ring, const std::filesystem::path file)
     -> std::deque<std::vector<std::uint8_t>>
 {
     const auto fd = openFile(file, O_RDONLY);
@@ -46,7 +46,7 @@ auto readFile(uringpp::Ring& ring, const std::filesystem::path file)
         ring.prepare_readv(fd, blocks.back(), bytesReadTotal, readData);
         ring.submit();
 
-        auto completion = ring.wait<Data>();
+        auto completion = ring.wait();
 
         if (completion.userData()->type == CompletionType::Read) {
             auto bytesRead = completion.result();
@@ -68,7 +68,7 @@ auto readFile(uringpp::Ring& ring, const std::filesystem::path file)
 }
 
 auto writeFile(
-    uringpp::Ring& ring,
+    uringpp::Ring<Data>& ring,
     const std::filesystem::path file,
     std::deque<std::vector<std::uint8_t>> blocks)
 {
@@ -81,7 +81,7 @@ auto writeFile(
         ring.prepare_writev(fd, block, bytesWriteTotal, writeData);
         ring.submit();
 
-        auto completion = ring.wait<Data>();
+        auto completion = ring.wait();
 
         if (completion.userData()->type == CompletionType::Write) {
             auto bytesWrite = completion.result();
@@ -98,7 +98,7 @@ auto writeFile(
 
 auto cp(const std::filesystem::path& inputFile, const std::filesystem::path& outputFile)
 {
-    uringpp::Ring ring { 64 };    
+    uringpp::Ring<Data> ring { 64 };
     writeFile(ring, outputFile, readFile(ring, inputFile));
 }
 

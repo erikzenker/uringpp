@@ -25,12 +25,12 @@ class WritevTests : public ::testing::Test {
     std::vector<std::uint8_t> m_buffer;
     const std::size_t m_maxQueueEntries;
     std::shared_ptr<UserData> m_userData;
-    Ring m_ring;
+    Ring<UserData> m_ring;
 };
 
 TEST_F(WritevTests, should_fail_to_enqueue_more_entries_then_available)
 {
     m_ring.prepare_writev(m_fd, m_buffer, 0, m_userData);
     m_ring.submit();
-    m_ring.wait<UserData>();
+    m_ring.wait();
 }

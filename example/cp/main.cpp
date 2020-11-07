@@ -35,7 +35,7 @@ int openFile(const path& file, int mode)
 
 auto cp(const path& inputFile, const path& outputFile, std::size_t queueSize = 64, std::size_t blockSize = 32 * 1024)
 {
-    uringpp::Ring ring { queueSize };
+    uringpp::Ring<Data> ring { queueSize };
     const auto inputFd = openFile(inputFile, O_RDONLY);
     const auto outputFd = openFile(outputFile, O_WRONLY);
     const auto inputFileSize = file_size(inputFile);
@@ -65,7 +65,7 @@ auto cp(const path& inputFile, const path& outputFile, std::size_t queueSize = 6
         }
 
         while(ring.submittedQueueEntries()){
-            auto completion = ring.wait<Data>();
+            auto completion = ring.wait();
             auto data = completion.userData();
 
             switch(data->type){

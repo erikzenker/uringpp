@@ -20,17 +20,35 @@ template <class T> concept ContinuousMemory = requires(T t)
     t.size();
 };
 
-class Ring {
+template <class UserData> class Ring {
     const std::size_t m_maxQueueEntries;
     io_uring m_ring;
     io_uring_cqe* m_cqe;
+    io_uring_params m_params;
 
   public:
-    Ring(std::size_t maxQueueEntries)
+
+
+    /*
+     * Create Wrapper for io_ring. Detailed documentation about flags and features
+     * of io_uring initialization can be found here:
+     * 
+     * https://raw.githubusercontent.com/axboe/liburing/master/man/io_uring_setup.2
+     * 
+     * Flags:
+     *  IORING_SETUP_IOPOLL: Perform busy-waiting for an I/O completion
+     *  IORING_SETUP_SQPOLL: perform submission queue polling
+     *  ...
+     * 
+     * @params[in] maxQueueEntries Number of entries in in submission and completion queue
+     * @params[in] flags feature toggles
+     */
+    Ring(std::size_t maxQueueEntries, std::uint64_t flags = 0)
         : m_maxQueueEntries(maxQueueEntries)
     {
-        const auto flags = 0;
-        const auto result = io_uring_queue_init(m_maxQueueEntries, &m_ring, flags);
+        std::memset(&m_params, 0, sizeof(m_params));
+        m_params.flags = flags;
+        const auto result = io_uring_queue_init_params(m_maxQueueEntries, &m_ring, &m_params);
 
         if (result < 0) {
             throw std::runtime_error(
@@ -41,6 +59,68 @@ class Ring {
     ~Ring()
     {
         io_uring_queue_exit(&m_ring);
+    }
+
+    //***************************************************************************
+    // FEATURE CHECKS
+    //***************************************************************************
+
+    /* 
+     * Return true if the two SQ and CQ rings can be mapped with a single mmap(2) call.
+     */ 
+    auto has_single_mmap() -> bool
+    {
+        return m_params.features & IORING_FEAT_SINGLE_MMAP;
+    }
+
+    /* 
+     * Return true if io_uring supports never dropping completion events.
+     */ 
+    auto has_nodrop() -> bool
+    {
+        return m_params.features & IORING_FEAT_NODROP;
+    }
+
+    /* 
+     * Return true if applications can be certain that any data for 
+     * async offload has been consumed when the kernel has consumed the SQE.
+     */ 
+    auto has_submit_stable() -> bool
+    {
+        return m_params.features & IORING_FEAT_SUBMIT_STABLE;
+    }
+
+    auto has_rw_cur_pos() -> bool
+    {
+        return m_params.features & IORING_FEAT_RW_CUR_POS;
+    }
+
+    auto has_cur_personality() -> bool
+    {
+        return m_params.features & IORING_FEAT_CUR_PERSONALITY;
+    }
+
+    /*
+     * Returns true if io_uring supports using an internal poll mechanism
+     * to drive data/space readiness. This means that requests that cannot read or
+     * write data to a file no longer need to be punted to an async thread for
+     * handling, instead they will being operation when the file is ready. This is
+     * similar to doing poll + read/write in userspace, but eliminates the need to do
+     * so. If this flag is set, requests waiting on space/data consume a lot less
+     * resources doing so as they are not blocking a thread.
+     */ 
+    auto has_fast_poll() -> bool
+    {
+        return m_params.features & IORING_FEAT_FAST_POLL;
+    }
+
+    /*
+    * Returns ture if this flag is set, the IORING_OP_POLL_ADD command 
+    * accepts the full 32-bit range of epoll based flags
+    */
+    auto has_poll_32bit() -> bool
+    {
+        return m_params.features & IORING_FEAT_POLL_32BITS;
     }
 
     //***************************************************************************
@@ -66,10 +146,11 @@ class Ring {
      * Pushes a readv system call onto the uring submission queue
      *
      * @param[in] fileDescriptor file descriptor which the kernel should read from
+     * @param[out] buffer buffer which the kernel should read to
+     * @param[in] offset offset in the buffer where start to read
      * @param[in] userData user data which will be returned on the completion
-     * @param[out] buffer buffer which the kernel should write to
      */
-    template <ContinuousMemory Container, class UserData>
+    template <ContinuousMemory Container>
     auto prepare_readv(
         int fileDescriptor,
         Container& buffer,
@@ -91,7 +172,15 @@ class Ring {
         return true;
     }
 
-    template <ContinuousMemory Container, class UserData>
+    /*
+     * Pushes a writev system call onto the uring submission queue
+     *
+     * @param[in] fileDescriptor file descriptor which the kernel should read from
+     * @param[out] buffer buffer which the kernel should write to 
+     * @param[in] offset offset in the buffer where start to write 
+     * @param[in] userData user data which will be returned on the completion
+     */
+    template <ContinuousMemory Container>
     auto prepare_writev(
         int fileDescriptor,
         Container& buffer,
@@ -113,7 +202,6 @@ class Ring {
         return true;
     }
 
-    template <class UserData>
     auto prepare_accept(
         int fileDescriptor,
         struct sockaddr* addr,
@@ -132,7 +220,7 @@ class Ring {
         return true;
     }
 
-    template <ContinuousMemory Container, class UserData>
+    template <ContinuousMemory Container>
     auto
     prepare_send(int fileDescriptor, Container& buffer, const std::shared_ptr<UserData>& userData)
     {
@@ -149,7 +237,7 @@ class Ring {
         return true;
     }
 
-    template <ContinuousMemory Container, class UserData>
+    template <ContinuousMemory Container>
     auto prepare_send_bp(
         int fileDescriptor, Container&& buffer, const std::shared_ptr<UserData>& userData)
     {
@@ -166,8 +254,7 @@ class Ring {
         return true;
     }
 
-
-    template <ContinuousMemory Container, class UserData>
+    template <ContinuousMemory Container>
     auto
     prepare_recv(int fileDescriptor, Container& buffer, const std::shared_ptr<UserData>& userData)
     {
@@ -185,7 +272,6 @@ class Ring {
     }
 
 
-    template <class UserData>
     auto
     prepare_recv_bp(int fileDescriptor, BufferPool& bufferPool, const std::shared_ptr<UserData>& userData)
     {
@@ -204,7 +290,6 @@ class Ring {
         return true;
     }
 
-    template <class UserData>
     auto prepare_poll_add(int fileDescriptor, const std::shared_ptr<UserData>& userData)
     {
         auto submissionQueueEntry = getSubmissionQueueEntry();
@@ -218,7 +303,6 @@ class Ring {
        return true;
     }    
 
-    template <class UserData>
     auto prepare_epoll_ctl(
         int epollFileDescriptor,
         int fileDescriptor,
@@ -243,7 +327,6 @@ class Ring {
     // BUFFER UTILS
     //***************************************************************************
     // TODO: Add user data and do not submit/wait/seen
-    template <class UserData>
     auto prepare_create_buffer_pool(std::size_t numberOfBuffers, std::size_t sizePerBuffer, const std::shared_ptr<UserData>& userData) -> BufferPool
     {
         auto submissionQueueEntry = getSubmissionQueueEntry();
@@ -266,7 +349,6 @@ class Ring {
         return bufferPool;
     }
 
-    template <class UserData>
     auto prepare_readd_buffer(BufferPool& bufferPool, std::size_t bufferIdx, const std::shared_ptr<UserData>& userData) -> BufferPool
     {
         auto submissionQueueEntry = getSubmissionQueueEntry();
@@ -314,7 +396,7 @@ class Ring {
      *
      * @return Completion
      */
-    template <class UserData> auto wait() -> Completion<UserData>
+    auto wait() -> Completion<UserData>
     {
         auto result = io_uring_wait_cqe(&m_ring, &m_cqe);
 
@@ -330,7 +412,7 @@ class Ring {
      *
      * @return Completion completion of submitted command
      */
-    template <class UserData> auto peek() -> std::optional<Completion<UserData>>
+    auto peek() -> std::optional<Completion<UserData>>
     {
         auto result = io_uring_peek_cqe(&m_ring, &m_cqe);
 
@@ -346,7 +428,7 @@ class Ring {
      *
      * @param[in] completion completion that should be removed
      */
-    template <class UserData> auto seen(const Completion<UserData>& completion) -> void
+    auto seen(const Completion<UserData>& completion) -> void
     {
         io_uring_cqe_seen(&m_ring, completion.get());
     }

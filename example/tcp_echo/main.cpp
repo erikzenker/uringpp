@@ -7,22 +7,31 @@
 #include <uringpp/uringpp.h>
 
 #include <array>
+#include <map>
 #include <string>
 
-enum class CompletionType : std::uint8_t { Accept = 0, Recv = 1, Send = 2 };
+enum class CompletionType : std::uint8_t {
+    Accept = 0,
+    Recv = 1,
+    Send = 2,
+    CreateBufferPool = 4,
+    ReaddBufferPool = 5
+};
 
 struct Data {
-    Data(CompletionType type, int fd = 0, std::uint8_t* buffer = nullptr)
+    Data(CompletionType type, int fd = 0, std::size_t bufferIdx = 0)
         : type(type)
-        , buffer(buffer)
+        , bufferIdx(bufferIdx)
         , fd(fd)
     {
     }
 
     CompletionType type;
     int fd;
-    std::uint8_t* buffer;
+    std::size_t bufferIdx;
 };
+
+using Ring = uringpp::Ring<Data>;
 
 int listen(std::uint16_t port)
 {
@@ -52,36 +61,68 @@ int listen(std::uint16_t port)
     return listenFd;
 }
 
-void accept(uringpp::Ring& ring, int listenFd)
+void accept(Ring& ring, std::map<Data*, std::shared_ptr<Data>>& userData, int listenFd)
 {
-    ring.prepare_accept(listenFd, nullptr, nullptr, std::make_shared<Data>(CompletionType::Accept));
-    ring.submit();
+    while (ring.capacity()) {
+        auto data = std::make_shared<Data>(CompletionType::Accept);
+        userData.emplace(data.get(), data);
+        ring.prepare_accept(listenFd, nullptr, nullptr, data);
+    }
 }
 
-void recv(uringpp::Ring& ring, int fd, std::vector<std::vector<std::uint8_t>>& buffers)
+void recv(
+    Ring& ring, std::map<Data*, std::shared_ptr<Data>>& userData, int fd, BufferPool& bufferPool)
 {
-    buffers.emplace_back(1024);
-    ring.prepare_recv(
-        fd,
-        buffers.back(),
-        std::make_shared<Data>(CompletionType::Recv, fd, buffers.back().data()));
-    ring.submit();
+    auto data = std::make_shared<Data>(CompletionType::Recv, fd);
+    userData.emplace(data.get(), data);
+    ring.prepare_recv_bp(fd, bufferPool, data);
 }
 
-void send(uringpp::Ring& ring, int fd, std::vector<std::uint8_t>& buffer)
+void send(
+    Ring& ring,
+    std::map<Data*, std::shared_ptr<Data>>& userData,
+    int fd,
+    BufferPool& bufferPool,
+    std::size_t bufferIdx)
 {
-    ring.prepare_send(fd, buffer, std::make_shared<Data>(CompletionType::Send, fd, buffer.data()));
-    ring.submit();
+    auto data = std::make_shared<Data>(CompletionType::Send, fd, bufferIdx);
+    userData.emplace(data.get(), data);
+    ring.prepare_send_bp(fd, bufferPool.at(bufferIdx), data);
 }
 
-auto echo(uringpp::Ring& ring, int listenFd) -> auto
+auto createBufferPool(
+    Ring& ring,
+    std::map<Data*, std::shared_ptr<Data>>& userData,
+    std::size_t numberOfBuffers,
+    std::size_t sizePerBuffer) -> BufferPool
 {
-    std::vector<std::vector<std::uint8_t>> buffers;
+    auto data = std::make_shared<Data>(CompletionType::CreateBufferPool);
+    userData.emplace(data.get(), data);
+    return ring.prepare_create_buffer_pool(numberOfBuffers, sizePerBuffer, data);
+}
 
-    accept(ring, listenFd);
+void readdBufferPool(
+    Ring& ring,
+    std::map<Data*, std::shared_ptr<Data>>& userData,
+    BufferPool& bufferPool,
+    std::size_t bufferIdx)
+{
+    auto data = std::make_shared<Data>(CompletionType::ReaddBufferPool);
+    data->bufferIdx = bufferIdx;
+    userData.emplace(data.get(), data);
+    ring.prepare_readd_buffer(bufferPool, bufferIdx, data);
+}
+
+auto echo(Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
+{
+    std::map<Data*, std::shared_ptr<Data>> userData;
+    auto bufferPool = createBufferPool(ring, userData, bufferPoolSize, 1024);
+
+    accept(ring, userData, listenFd);
+    ring.submit();
 
     while (true) {
-        auto completion = ring.wait<Data>();
+        auto completion = ring.wait();
 
         switch (completion.userData()->type) {
         case CompletionType::Accept: {
@@ -93,40 +134,65 @@ auto echo(uringpp::Ring& ring, int listenFd) -> auto
             auto acceptedSocketFd = completion.result();
 
             std::cout << "* Accepted[" << acceptedSocketFd << "]" << std::endl;
-            recv(ring, acceptedSocketFd, buffers);
+
+            recv(ring, userData, acceptedSocketFd, bufferPool);
+            accept(ring, userData, listenFd);
             break;
         }
 
         case CompletionType::Recv: {
             if (completion.result() < 0) {
                 throw std::runtime_error(
-                    std::string("failed to read from socket ") + strerror(-completion.result()));
+                    std::string("failed to recv from socket ") + strerror(-completion.result()));
             }
 
+            int bufferIdx = completion.get()->flags >> 16;
+
             std::cout << "* Received[" << completion.userData()->fd
-                      << "]: " << completion.userData()->buffer << std::endl;
-            buffers.emplace_back(completion.result());
-            std::copy(
-                completion.userData()->buffer,
-                completion.userData()->buffer + completion.result(),
-                buffers.back().begin());
-            send(ring, completion.userData()->fd, buffers.back());
+                      << "]: " << bufferPool.at(completion.userData()->bufferIdx).data()
+                      << std::endl;
+
+            send(ring, userData, completion.userData()->fd, bufferPool, bufferIdx);
             break;
         }
 
         case CompletionType::Send: {
             if (completion.result() < 0) {
                 throw std::runtime_error(
-                    std::string("failed to write to socket") + strerror(-completion.result()));
+                    std::string("failed to send to socket") + strerror(-completion.result()));
             }
 
             std::cout << "* Send[" << completion.userData()->fd
-                      << "]: " << completion.userData()->buffer << std::endl;
-            recv(ring, completion.userData()->fd, buffers);
+                      << "]: " << bufferPool.at(completion.userData()->bufferIdx).data()
+                      << std::endl;
+            readdBufferPool(ring, userData, bufferPool, completion.userData()->bufferIdx);
+            recv(ring, userData, completion.userData()->fd, bufferPool);
+            break;
+        }
+
+        case CompletionType::CreateBufferPool: {
+            if (completion.result() < 0) {
+                throw std::runtime_error(
+                    std::string("failed to create buffer pool ") + strerror(-completion.result()));
+            }
+
+            std::cout << "* Create buffer pool" << std::endl;
+            break;
+        }
+
+        case CompletionType::ReaddBufferPool: {
+            if (completion.result() < 0) {
+                throw std::runtime_error(
+                    std::string("failed to add buffer pool ") + strerror(-completion.result()));
+            }
+
+            std::cout << "* Readded buffer pool " << completion.userData()->bufferIdx << std::endl;
             break;
         }
         }
+        userData.erase(completion.userData());
         ring.seen(completion);
+        ring.submit();
     }
 }
 
@@ -139,11 +205,13 @@ int main(int argc, char const* argv[])
 
     const auto port = std::stoi(argv[1]);
     const auto queueSize = 64;
-    uringpp::Ring ring { queueSize };
+    const auto bufferPoolSize = 2;
+    Ring ring { queueSize};
 
     std::cout << "Tcp echo server started. Listening on port " << port << "." << std::endl;
+    std::cout << "Io uring fast poll enabled: " << ring.has_fast_poll() << std::endl;
 
-    echo(ring, listen(port));
+    echo(ring, bufferPoolSize, listen(port));
 
     return 0;
 }

@@ -33,6 +33,8 @@ struct Data {
     std::size_t bufferIdx;
 };
 
+using Ring = uringpp::Ring<Data>;
+
 int listen(std::uint16_t port)
 {
     int listenFd;
@@ -61,78 +63,75 @@ int listen(std::uint16_t port)
     return listenFd;
 }
 
-void accept(uringpp::Ring& ring, std::map<Data*, std::shared_ptr<Data>>& datas, int listenFd)
+void accept(Ring& ring, std::map<Data*, std::shared_ptr<Data>>& userData, int listenFd)
 {
     while (ring.capacity()) {
         auto data = std::make_shared<Data>(CompletionType::Accept);
-        datas.emplace(data.get(), data);
+        userData.emplace(data.get(), data);
         ring.prepare_accept(listenFd, nullptr, nullptr, data);
     }
 }
 
 void recv(
-    uringpp::Ring& ring,
-    std::map<Data*, std::shared_ptr<Data>>& datas,
-    int fd,
-    BufferPool& bufferPool)
+    Ring& ring, std::map<Data*, std::shared_ptr<Data>>& userData, int fd, BufferPool& bufferPool)
 {
     auto data = std::make_shared<Data>(CompletionType::Recv, fd);
-    datas.emplace(data.get(), data);
+    userData.emplace(data.get(), data);
     ring.prepare_recv_bp(fd, bufferPool, data);
 }
 
 void send(
-    uringpp::Ring& ring,
-    std::map<Data*, std::shared_ptr<Data>>& datas,
+    Ring& ring,
+    std::map<Data*, std::shared_ptr<Data>>& userData,
     int fd,
     BufferPool& bufferPool,
     std::size_t bufferIdx)
 {
     auto data = std::make_shared<Data>(CompletionType::Send, fd, bufferIdx);
-    datas.emplace(data.get(), data);
+    userData.emplace(data.get(), data);
     ring.prepare_send_bp(fd, bufferPool.at(bufferIdx), data);
 }
 
-void poll(uringpp::Ring& ring, std::map<Data*, std::shared_ptr<Data>>& datas, int fd)
+void poll(Ring& ring, std::map<Data*, std::shared_ptr<Data>>& userData, int fd)
 {
     auto data = std::make_shared<Data>(CompletionType::Poll, fd);
-    datas.emplace(data.get(), data);
+    userData.emplace(data.get(), data);
     ring.prepare_poll_add(fd, data);
 }
 
 auto createBufferPool(
-    uringpp::Ring& ring,
-    std::map<Data*, std::shared_ptr<Data>>& datas,
+    Ring& ring,
+    std::map<Data*, std::shared_ptr<Data>>& userData,
     std::size_t numberOfBuffers,
     std::size_t sizePerBuffer) -> BufferPool
 {
     auto data = std::make_shared<Data>(CompletionType::CreateBufferPool);
-    datas.emplace(data.get(), data);
+    userData.emplace(data.get(), data);
     return ring.prepare_create_buffer_pool(numberOfBuffers, sizePerBuffer, data);
 }
 
 void readdBufferPool(
-    uringpp::Ring& ring,
-    std::map<Data*, std::shared_ptr<Data>>& datas,
+    Ring& ring,
+    std::map<Data*, std::shared_ptr<Data>>& userData,
     BufferPool& bufferPool,
     std::size_t bufferIdx)
 {
     auto data = std::make_shared<Data>(CompletionType::ReaddBufferPool);
     data->bufferIdx = bufferIdx;
-    datas.emplace(data.get(), data);
+    userData.emplace(data.get(), data);
     ring.prepare_readd_buffer(bufferPool, bufferIdx, data);
 }
 
-auto echo(uringpp::Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
+auto echo(Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
 {
-    std::map<Data*, std::shared_ptr<Data>> datas;
-    auto bufferPool = createBufferPool(ring, datas, bufferPoolSize, 1024);
+    std::map<Data*, std::shared_ptr<Data>> userData;
+    auto bufferPool = createBufferPool(ring, userData, bufferPoolSize, 1024);
 
-    accept(ring, datas, listenFd);
+    accept(ring, userData, listenFd);
     ring.submit();
 
     while (true) {
-        auto completion = ring.wait<Data>();
+        auto completion = ring.wait();
 
         switch (completion.userData()->type) {
         case CompletionType::Accept: {
@@ -145,8 +144,8 @@ auto echo(uringpp::Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
 
             std::cout << "* Accepted[" << acceptedSocketFd << "]" << std::endl;
 
-            poll(ring, datas, acceptedSocketFd);
-            accept(ring, datas, listenFd);
+            poll(ring, userData, acceptedSocketFd);
+            accept(ring, userData, listenFd);
             break;
         }
 
@@ -162,7 +161,7 @@ auto echo(uringpp::Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
                       << "]: " << bufferPool.at(completion.userData()->bufferIdx).data()
                       << std::endl;
 
-            send(ring, datas, completion.userData()->fd, bufferPool, bufferIdx);
+            send(ring, userData, completion.userData()->fd, bufferPool, bufferIdx);
             break;
         }
 
@@ -175,7 +174,7 @@ auto echo(uringpp::Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
             std::cout << "* Send[" << completion.userData()->fd
                       << "]: " << bufferPool.at(completion.userData()->bufferIdx).data()
                       << std::endl;
-            readdBufferPool(ring, datas, bufferPool, completion.userData()->bufferIdx);
+            readdBufferPool(ring, userData, bufferPool, completion.userData()->bufferIdx);
             break;
         }
 
@@ -187,8 +186,8 @@ auto echo(uringpp::Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
 
             std::cout << "* Poll[" << completion.userData()->fd << "] " << completion.result()
                       << std::endl;
-            recv(ring, datas, completion.userData()->fd, bufferPool);
-            poll(ring, datas, completion.userData()->fd);
+            recv(ring, userData, completion.userData()->fd, bufferPool);
+            poll(ring, userData, completion.userData()->fd);
             break;
         }
 
@@ -212,7 +211,7 @@ auto echo(uringpp::Ring& ring, std::size_t bufferPoolSize, int listenFd) -> auto
             break;
         }
         }
-        datas.erase(completion.userData());
+        userData.erase(completion.userData());
         ring.seen(completion);
         ring.submit();
     }
@@ -228,9 +227,10 @@ int main(int argc, char const* argv[])
     const auto port = std::stoi(argv[1]);
     const auto queueSize = 64;
     const auto bufferPoolSize = 2;
-    uringpp::Ring ring { queueSize };
+    Ring ring { queueSize };
 
     std::cout << "Tcp echo server started. Listening on port " << port << "." << std::endl;
+    std::cout << "Io uring fast poll enabled: " << ring.has_fast_poll() << std::endl;
 
     echo(ring, bufferPoolSize, listen(port));
 
