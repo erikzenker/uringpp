@@ -36,21 +36,21 @@ TEST_F(QueueTests, should_construct_ring)
 TEST_F(QueueTests, should_return_capacity)
 {
     ASSERT_EQ(m_maxQueueEntries, m_ring.capacity());
-    m_ring.prepare_nop();
+    m_ring.prepare_nop(m_userData);
     ASSERT_EQ(m_maxQueueEntries - 1, m_ring.capacity());    
 }
 
 TEST_F(QueueTests, should_return_number_of_prepared_queue_entries)
 {
     ASSERT_EQ(0, m_ring.preparedQueueEntries());
-    m_ring.prepare_nop();
+    m_ring.prepare_nop(m_userData);
     ASSERT_EQ(1, m_ring.preparedQueueEntries());
 }
 
 TEST_F(QueueTests, should_return_number_of_submitted_queue_entries)
 {
     ASSERT_EQ(0, m_ring.submittedQueueEntries());
-    m_ring.prepare_nop();
+    m_ring.prepare_nop(m_userData);
     ASSERT_EQ(0, m_ring.submittedQueueEntries());
     m_ring.submit();
     ASSERT_EQ(1, m_ring.submittedQueueEntries());
