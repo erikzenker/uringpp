@@ -3,27 +3,42 @@
 
 #include "uringpp/RingService.h"
 
+#include "asyncly/test/FutureTest.h"
+#include "asyncly/executor/CurrentExecutor.h"
+
 using namespace uringpp;
 
-class RingServiceTests : public ::testing::Test {
+class RingServiceTests : public asyncly::test::FutureTest {
+  protected:
+    RingServiceTests() : m_controller(asyncly::ThreadPoolExecutorController::create(1)), m_service()
+    {
+        asyncly::this_thread::set_current_executor(m_controller->get_executor());    
+    }
+
+  protected:
+    std::unique_ptr<asyncly::IExecutorController> m_controller;
+    RingService m_service;
 };
 
 TEST_F(RingServiceTests, should_compile)
 {
-    RingService service;
 }
 
-TEST_F(RingServiceTests, should_call_handler)
+TEST_F(RingServiceTests, should_nop)
 {
-    RingService service;
+    auto future = m_service.nop().then([](){ return asyncly::make_ready_future();});
+    m_service.run_once();
 
-    std::promise<void> handlerCalled;
+    wait_for_future(std::move(future));
+}
 
-    auto handler = [&handlerCalled]() { handlerCalled.set_value(); };
+TEST_F(RingServiceTests, should_read)
+{
+    int fd = 0  ;
+    std::vector<std::uint8_t> buffer(1024);
 
-    service.nop(handler);
-    service.run_once();
+    auto future = m_service.readv(fd, buffer, 0);
+    m_service.run_once();
 
-    ASSERT_EQ(
-        std::future_status::ready, handlerCalled.get_future().wait_for(std::chrono::seconds(1)));
+    wait_for_future(std::move(future));    
 }

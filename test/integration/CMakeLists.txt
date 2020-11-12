@@ -7,6 +7,8 @@ if(NOT TARGET uringpp::uringpp)
     find_package(uringpp CONFIG REQUIRED)
 endif()
 
+find_package(Boost 1.72 REQUIRED COMPONENTS thread)
+
 # Added because asio fails to compile with concepts
 # See https://github.com/boostorg/asio/issues/312
 add_definitions(-DBOOST_ASIO_DISABLE_CONCEPTS)
@@ -23,8 +25,11 @@ add_executable(uringppIntegrationTests
 
 target_link_libraries(uringppIntegrationTests
         PRIVATE
+          Boost::thread
           uringpp::uringpp
+          asyncly
           gtest_main
+          asyncly_test_utils
 )
 
 add_test(NAME uringpp.IntegrationTests

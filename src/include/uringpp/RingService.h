@@ -2,55 +2,73 @@
 
 #include "uringpp/Ring.h"
 
+#include "asyncly/executor/ThreadPoolExecutorController.h"
+#include "asyncly/executor/Strand.h"
+#include "asyncly/executor/IStrand.h"
+#include "asyncly/future/Future.h"
+
 #include "boost/asio.hpp"
 
 #include <memory>
 
 namespace uringpp {
 
-struct UserData {
+struct Request {
+    Request(std::uint64_t id, asyncly::Promise<void>&& promise) : id(id), promise(promise){}
     std::uint64_t id;
-    std::function<void()> handler;
+    asyncly::Promise<void> promise;
 };
 
 class RingService {
   private:
-    Ring<UserData> m_ring;
-    boost::asio::io_context m_ioContext;
-    boost::asio::executor_work_guard<boost::asio::io_context::executor_type> m_work;
-    std::thread m_workThread;
-    std::map<UserData*, std::shared_ptr<UserData>> m_handlers;
-    std::uint64_t m_id = 0;
+    Ring<Request> m_ring;
+    std::unique_ptr<asyncly::ThreadPoolExecutorController> m_executorController;
+    asyncly::IStrandPtr m_strand;
+    std::map<Request*, std::shared_ptr<Request>> m_requests;
+    //std::uint64_t m_id = 0;
 
   public:
     RingService()
         : m_ring(64)
-        , m_ioContext()
-        , m_work(boost::asio::make_work_guard(m_ioContext))
-        , m_workThread([this]() { m_ioContext.run(); })
+        , m_executorController(asyncly::ThreadPoolExecutorController::create(1))
+        , m_strand(asyncly::create_strand(m_executorController->get_executor()))
     {
     }
 
     ~RingService()
     {
-        m_work.reset();
-        m_workThread.join();
+        m_executorController->finish();    
     }
 
-    template <class Handler> auto nop(const Handler& handler) -> void
+    auto nop() -> asyncly::Future<void>
     {
-        auto userData = std::make_shared<UserData>(m_id++, handler);
-        m_handlers.insert({ userData.get(), userData });
-        m_ring.prepare_nop(userData);
-        m_ring.submit();
+        auto [future, promise] = asyncly::make_lazy_future<void>();        
+        //auto request = std::make_shared<Request>(m_id++, std::move(promise));
+
+        // m_requests.insert({ request.get(), request });
+        // m_ring.prepare_nop(request);
+        // m_ring.submit();
+        return future;
+    }
+
+    template<ContinuousMemory Container>
+    auto readv(int /*fileDescriptor*/, Container& /*buffer*/, std::size_t /*offset*/) -> asyncly::Future<void>
+    {
+        auto [future, promise] = asyncly::make_lazy_future<void>();
+        // auto request = std::make_shared<Request>(m_id++, promise);
+
+        // m_requests.insert({ request.get(), request });
+        // m_ring.prepare_readv(fileDescriptor, buffer, offset, request);
+        // m_ring.submit();
+        return future;
     }
 
     auto run_once() -> void
     {
-        boost::asio::post(m_ioContext, [this]() {
+        m_strand->post([this]() {
             auto completion = m_ring.wait();
-            completion.userData()->handler();
-            m_handlers.erase(completion.userData());
+            completion.userData()->promise.set_value();
+            m_requests.erase(completion.userData());
             m_ring.seen(completion);
         });
     }

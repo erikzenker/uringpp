@@ -9,14 +9,9 @@
 
 #include "uringpp/BufferPool.h"
 #include "uringpp/Completion.h"
+#include "uringpp/concepts.h"
 
 namespace uringpp {
-
-template <class T> concept ContinuousMemory = requires(T t)
-{
-    t.data();
-    t.size();
-};
 
 template <class UserData> class Ring {
     const std::size_t m_maxQueueEntries;
@@ -310,7 +305,6 @@ template <class UserData> class Ring {
             return false;
         }
 
-        const int flags = 0;
         io_uring_prep_epoll_ctl(
             submissionQueueEntry, epollFileDescriptor, fileDescriptor, op, epollEvent);
         io_uring_sqe_set_data(submissionQueueEntry, userData.get());

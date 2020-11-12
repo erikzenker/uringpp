@@ -33,5 +33,6 @@ set_target_properties(Uring::Uring PROPERTIES INTERFACE_LINK_LIBRARIES "/usr/lib
 set_target_properties(Uring::Uring PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "/usr/include/")
         
 target_link_libraries(uringpp INTERFACE
-        Uring::Uring)
+        Uring::Uring
+        )
 add_library(uringpp::uringpp ALIAS uringpp)
