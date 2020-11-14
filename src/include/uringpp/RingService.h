@@ -25,7 +25,7 @@ class RingService {
     std::unique_ptr<asyncly::ThreadPoolExecutorController> m_executorController;
     asyncly::IStrandPtr m_strand;
     std::map<Request*, std::shared_ptr<Request>> m_requests;
-    //std::uint64_t m_id = 0;
+    std::uint64_t m_id = 0;
 
   public:
     RingService()
@@ -43,23 +43,23 @@ class RingService {
     auto nop() -> asyncly::Future<void>
     {
         auto [future, promise] = asyncly::make_lazy_future<void>();        
-        //auto request = std::make_shared<Request>(m_id++, std::move(promise));
+        auto request = std::make_shared<Request>(m_id++, std::move(promise));
 
-        // m_requests.insert({ request.get(), request });
-        // m_ring.prepare_nop(request);
-        // m_ring.submit();
+        m_requests.insert({ request.get(), request });
+        m_ring.prepare_nop(request);
+        m_ring.submit();
         return future;
     }
 
     template<ContinuousMemory Container>
-    auto readv(int /*fileDescriptor*/, Container& /*buffer*/, std::size_t /*offset*/) -> asyncly::Future<void>
+    auto readv(int fd, Container& buffer, std::size_t offset) -> asyncly::Future<void>
     {
         auto [future, promise] = asyncly::make_lazy_future<void>();
-        // auto request = std::make_shared<Request>(m_id++, promise);
+        auto request = std::make_shared<Request>(m_id++, std::move(promise));
 
-        // m_requests.insert({ request.get(), request });
-        // m_ring.prepare_readv(fileDescriptor, buffer, offset, request);
-        // m_ring.submit();
+        m_requests.insert({ request.get(), request });
+        m_ring.prepare_readv(fd, buffer, offset, request);
+        m_ring.submit();
         return future;
     }
 
