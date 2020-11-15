@@ -2,21 +2,28 @@
 
 #include "uringpp/Ring.h"
 
-#include "asyncly/executor/ThreadPoolExecutorController.h"
-#include "asyncly/executor/Strand.h"
 #include "asyncly/executor/IStrand.h"
+#include "asyncly/executor/Strand.h"
+#include "asyncly/executor/ThreadPoolExecutorController.h"
 #include "asyncly/future/Future.h"
 
-#include "boost/asio.hpp"
+#include <cppcoro/single_consumer_event.hpp>
+#include <cppcoro/task.hpp>
 
 #include <memory>
 
 namespace uringpp {
 
 struct Request {
-    Request(std::uint64_t id, asyncly::Promise<void>&& promise) : id(id), promise(promise){}
+    Request(std::uint64_t id, cppcoro::single_consumer_event& event, bool stop = false)
+        : id(id)
+        , event(event)
+        , stop(stop)
+    {
+    }
     std::uint64_t id;
-    asyncly::Promise<void> promise;
+    cppcoro::single_consumer_event& event;
+    bool stop;
 };
 
 class RingService {
@@ -37,40 +44,77 @@ class RingService {
 
     ~RingService()
     {
-        m_executorController->finish();    
+        m_executorController->finish();
+        std::cerr << "~RingService" << std::endl;
     }
 
-    auto nop() -> asyncly::Future<void>
+    auto ring() -> auto
     {
-        auto [future, promise] = asyncly::make_lazy_future<void>();        
-        auto request = std::make_shared<Request>(m_id++, std::move(promise));
+        return m_ring;
+    }
+
+    auto nop(bool stopFlag = false) -> cppcoro::task<>
+    {
+        cppcoro::single_consumer_event event;
+        auto request = std::make_shared<Request>(m_id++, event, stopFlag);
 
         m_requests.insert({ request.get(), request });
         m_ring.prepare_nop(request);
         m_ring.submit();
-        return future;
+
+        co_await event;
+        co_return;
     }
 
-    template<ContinuousMemory Container>
-    auto readv(int fd, Container& buffer, std::size_t offset) -> asyncly::Future<void>
+    template <ContinuousMemory Container>
+    auto readv(int fd, Container& buffer, std::size_t offset) -> cppcoro::task<Container&>
     {
-        auto [future, promise] = asyncly::make_lazy_future<void>();
-        auto request = std::make_shared<Request>(m_id++, std::move(promise));
+        cppcoro::single_consumer_event event;
+        auto request = std::make_shared<Request>(m_id++, event);
 
         m_requests.insert({ request.get(), request });
         m_ring.prepare_readv(fd, buffer, offset, request);
         m_ring.submit();
-        return future;
+
+        co_await event;
+        co_return buffer;
+    }
+
+    auto wait_once() -> bool
+    {
+        auto completion = m_ring.wait();
+        completion.userData()->event.set();
+        auto stop = completion.userData()->stop;
+        m_requests.erase(completion.userData());
+        m_ring.seen(completion);
+        return stop;
+    }
+
+    //***************************************************************************
+    // CONTROL THE LOOP
+    //***************************************************************************
+    auto run() -> void
+    {
+        m_strand->post([this]() {
+            while (true) {
+                auto stop = wait_once();
+
+                if (stop) {
+                    break;
+                }
+            }
+        });
     }
 
     auto run_once() -> void
     {
-        m_strand->post([this]() {
-            auto completion = m_ring.wait();
-            completion.userData()->promise.set_value();
-            m_requests.erase(completion.userData());
-            m_ring.seen(completion);
-        });
+        m_strand->post([this]() { wait_once(); });
+    }
+
+    auto stop() -> cppcoro::task<void>
+    {
+        auto stopFlag = true;
+        co_await nop(stopFlag);
     }
 };
 

@@ -27,6 +27,11 @@ target_include_directories(uringpp INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
 
+find_package (Threads)
+find_package(Boost REQUIRED COMPONENTS thread)
+find_package(cppcoro REQUIRED)
+find_package(asyncly REQUIRED)
+
 # TODO: Finding the uring library should be part of a cmake find module    
 add_library(Uring::Uring INTERFACE IMPORTED)
 set_target_properties(Uring::Uring PROPERTIES INTERFACE_LINK_LIBRARIES "/usr/lib/liburing.so")
@@ -34,5 +39,9 @@ set_target_properties(Uring::Uring PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "/us
         
 target_link_libraries(uringpp INTERFACE
         Uring::Uring
+        Threads::Threads
+        Boost::thread
+        cppcoro::cppcoro
+        asyncly
         )
 add_library(uringpp::uringpp ALIAS uringpp)

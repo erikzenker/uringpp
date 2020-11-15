@@ -3,20 +3,33 @@
 
 #include "uringpp/RingService.h"
 
-#include "asyncly/test/FutureTest.h"
 #include "asyncly/executor/CurrentExecutor.h"
+#include "asyncly/test/FutureTest.h"
+
+#include "cppcoro/async_generator.hpp"
+#include "cppcoro/sync_wait.hpp"
+
+#include "tests_base.h"
 
 using namespace uringpp;
 
 class RingServiceTests : public asyncly::test::FutureTest {
   protected:
-    RingServiceTests() : m_controller(asyncly::ThreadPoolExecutorController::create(1)), m_service()
+    RingServiceTests()
+        : m_controller(asyncly::ThreadPoolExecutorController::create(1))
+        , m_file("test.txt")
+        , m_fd(getFileDescriptor(m_file))
+        , m_service()
+
     {
-        asyncly::this_thread::set_current_executor(m_controller->get_executor());    
+        asyncly::this_thread::set_current_executor(m_controller->get_executor());
     }
 
   protected:
     std::unique_ptr<asyncly::IExecutorController> m_controller;
+    std::filesystem::path m_file;
+    int m_fd;
+
     RingService m_service;
 };
 
@@ -26,19 +39,34 @@ TEST_F(RingServiceTests, should_compile)
 
 TEST_F(RingServiceTests, should_nop)
 {
-    auto future = m_service.nop().then([](){ return asyncly::make_ready_future();});
-    m_service.run_once();
-
-    wait_for_future(std::move(future));
+    cppcoro::sync_wait([this]() -> cppcoro::task<> {
+        m_service.run_once();
+        co_await m_service.nop();
+    }());
 }
 
 TEST_F(RingServiceTests, should_read)
 {
-    int fd = 0  ;
-    std::vector<std::uint8_t> buffer(1024);
+    cppcoro::sync_wait([this]() -> cppcoro::task<> {
+        m_service.run_once();
+        std::vector<std::uint8_t> buffer(1024);
+        auto& readBuffer = co_await m_service.readv(m_fd, buffer, 0);
+        EXPECT_EQ(readBuffer.size(), buffer.size());
+    }());
+}
 
-    auto future = m_service.readv(fd, buffer, 0);
+TEST_F(RingServiceTests, should_do)
+{
     m_service.run_once();
 
-    wait_for_future(std::move(future));    
+    cppcoro::sync_wait([this]() -> cppcoro::task<> {
+        auto make_generator = [this]() -> cppcoro::async_generator<int> {
+            co_await m_service.nop();
+            co_yield 0;
+        };
+
+        auto gen = make_generator();
+        auto it = co_await gen.begin();
+        std::cout << *it << std::endl;
+    }());
 }
