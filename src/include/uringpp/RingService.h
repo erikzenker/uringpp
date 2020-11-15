@@ -42,6 +42,11 @@ class RingService {
     {
     }
 
+    ~RingService()
+    {
+        m_executorController->finish();
+    }
+
     auto ring() -> auto
     {
         return m_ring;
@@ -61,13 +66,27 @@ class RingService {
     }
 
     template <ContinuousMemory Container>
-    auto readv(int fd, Container& buffer, std::size_t offset) -> cppcoro::task<Container&>
+    auto read(int fd, Container& buffer, std::size_t offset) -> cppcoro::task<Container&>
     {
         cppcoro::single_consumer_event event;
         auto request = std::make_shared<Request>(m_id++, event);
 
         m_requests.insert({ request.get(), request });
         m_ring.prepare_readv(fd, buffer, offset, request);
+        m_ring.submit();
+
+        co_await event;
+        co_return buffer;
+    }
+
+    template <ContinuousMemory Container>
+    auto write(int fd, Container& buffer, std::size_t offset) -> cppcoro::task<Container&>
+    {
+        cppcoro::single_consumer_event event;
+        auto request = std::make_shared<Request>(m_id++, event);
+
+        m_requests.insert({ request.get(), request });
+        m_ring.prepare_writev(fd, buffer, offset, request);
         m_ring.submit();
 
         co_await event;

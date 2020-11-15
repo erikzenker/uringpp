@@ -4,6 +4,12 @@
 #include "uringpp/RingService.h"
 
 #include "asyncly/executor/CurrentExecutor.h"
+#include "asyncly/test/FutureTest.h"
+
+#include "cppcoro/async_generator.hpp"
+#include "cppcoro/sync_wait.hpp"
+
+#include "tests_base.h"
 
 #include "cppcoro/async_generator.hpp"
 #include "cppcoro/sync_wait.hpp"
@@ -51,7 +57,7 @@ TEST_F(RingServiceTests, should_read)
 
     cppcoro::sync_wait([this]() -> cppcoro::task<> {
         std::vector<std::uint8_t> buffer(1024);
-        auto& readBuffer = co_await m_service.readv(m_fd, buffer, 0);
+        auto& readBuffer = co_await m_service.read(m_fd, buffer, 0);
         EXPECT_EQ(readBuffer.size(), buffer.size());
     }());
 }

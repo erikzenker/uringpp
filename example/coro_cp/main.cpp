@@ -41,18 +41,20 @@ std::vector<std::size_t> split(std::string inputFile, std::size_t maxPerSplit)
     return splits;
 }
 
-auto make_generator
+auto coro_cp
     = [](uringpp::RingService& service,
          const path& inputFile,
-         const std::vector<std::size_t>& splits) -> async_generator<std::vector<std::uint8_t>> {
-
+         const path& outputFile,
+         const std::vector<std::size_t>& splits) -> cppcoro::task<>
+{
     const auto inputFd = openFile(inputFile, O_RDONLY);
+    const auto outputFd = openFile(outputFile, O_WRONLY);
     auto offset = 0;
 
     for (const auto& bufferSize : splits) {
         std::vector<std::uint8_t> buffer(bufferSize);
-        co_await service.readv(inputFd, buffer, offset);
-        co_yield buffer;
+        co_await service.read(inputFd, buffer, offset);
+        co_await service.write(outputFd, buffer, offset);
 
         offset += buffer.size();
     }
@@ -63,22 +65,17 @@ int main(int argc, char** argv)
     uringpp::RingService service;
 
     cppcoro::sync_wait([&service, argc, argv]() -> cppcoro::task<> {
-        if (argc < 2) {
-            throw std::runtime_error("usage: cat [FILE]");
+        if (argc < 3) {
+            throw std::runtime_error("usage: coro_cp [INPUT_FILE] [OUTPUT_FILE]");
         }
 
         service.run();
 
         const auto inputFile = path(argv[1]);
-        const auto bufferSize = 1024;
+        const auto outputFile = path(argv[2]);
+        const auto bufferSize = 8 * 1024;
         auto splits = split(inputFile, bufferSize);
-        auto gen = make_generator(service, inputFile, splits);
-
-        for (auto it = co_await gen.begin(); it != gen.end(); co_await ++it) {
-            std::vector<std::uint8_t> vec = *it;
-            std::cout << std::string { vec.begin(), vec.end() } << std::endl;
-        }
-
+        co_await coro_cp(service, inputFile, outputFile, splits);
         co_await service.stop();
     }());
 
