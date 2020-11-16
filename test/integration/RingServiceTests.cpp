@@ -4,7 +4,6 @@
 #include "uringpp/RingService.h"
 
 #include "asyncly/executor/CurrentExecutor.h"
-#include "asyncly/test/FutureTest.h"
 
 #include "cppcoro/async_generator.hpp"
 #include "cppcoro/sync_wait.hpp"
@@ -13,7 +12,7 @@
 
 using namespace uringpp;
 
-class RingServiceTests : public asyncly::test::FutureTest {
+class RingServiceTests : public testing::Test {
   protected:
     RingServiceTests()
         : m_controller(asyncly::ThreadPoolExecutorController::create(1))
@@ -39,16 +38,18 @@ TEST_F(RingServiceTests, should_compile)
 
 TEST_F(RingServiceTests, should_nop)
 {
+    m_service.run_once();
+
     cppcoro::sync_wait([this]() -> cppcoro::task<> {
-        m_service.run_once();
         co_await m_service.nop();
     }());
 }
 
 TEST_F(RingServiceTests, should_read)
 {
+    m_service.run_once();
+
     cppcoro::sync_wait([this]() -> cppcoro::task<> {
-        m_service.run_once();
         std::vector<std::uint8_t> buffer(1024);
         auto& readBuffer = co_await m_service.readv(m_fd, buffer, 0);
         EXPECT_EQ(readBuffer.size(), buffer.size());

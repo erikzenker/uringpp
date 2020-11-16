@@ -42,12 +42,6 @@ class RingService {
     {
     }
 
-    ~RingService()
-    {
-        m_executorController->finish();
-        std::cerr << "~RingService" << std::endl;
-    }
-
     auto ring() -> auto
     {
         return m_ring;

@@ -25,11 +25,8 @@ add_executable(uringppIntegrationTests
 
 target_link_libraries(uringppIntegrationTests
         PRIVATE
-          Boost::thread
           uringpp::uringpp
-          asyncly
-          gtest_main
-          asyncly_test_utils
+          gtest
 )
 
 add_test(NAME uringpp.IntegrationTests

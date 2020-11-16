@@ -10,8 +10,12 @@ C++ interface and playground for io_uring / liburing
     Polling might be necessary to increase the number of pending sockets.
 * [tcp echo](example/tcp_echo/main.cpp)
   * Uses the io uring fast poll feature which makes it unnecessary to poll on file descriptors
+* [cat](example/cat/main.cpp)
 
 # Dependencies
 
-* liburing
 * Linux >= 5.1
+* [liburing](https://github.com/axboe/liburing)
+* Boost 1.74
+* [cppcoro](https://github.com/andreasbuhr/cppcoro)
+* [asyncly](https://github.com/LogMeIn/asyncly)

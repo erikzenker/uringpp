@@ -17,9 +17,4 @@ add_executable(cat main.cpp)
 target_link_libraries(cat
         PRIVATE
         uringpp::uringpp
-        Threads::Threads
-        Boost::thread
-        cppcoro::cppcoro
-        asyncly
-        asyncly_test_utils
-        )
+)

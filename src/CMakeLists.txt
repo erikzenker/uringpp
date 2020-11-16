@@ -27,7 +27,7 @@ target_include_directories(uringpp INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>)
 
-find_package (Threads)
+find_package(Threads)
 find_package(Boost REQUIRED COMPONENTS thread)
 find_package(cppcoro REQUIRED)
 find_package(asyncly REQUIRED)
