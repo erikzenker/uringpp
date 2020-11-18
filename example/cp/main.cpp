@@ -100,7 +100,7 @@ auto cp(const path& inputFile, const path& outputFile, std::size_t queueSize = 6
                     break;
                 }                
             };
-            ring.seen(completion);
+            // ring.seen(completion);
         }
     }
 }
